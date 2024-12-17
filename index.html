@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Miejska Abstrakcja: Nocny Flâneur - Ambient Pad</title>
+<style>
+  body {
+    margin: 0;
+    font-family: "Verdana", sans-serif;
+    background: #000;
+    color: #fff;
+    overflow: hidden;
+  }
+  header {
+    text-align: center;
+    background: #111;
+    padding: 20px;
+    color: #fff;
+  }
+  #controls {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background: #222;
+    padding: 10px;
+    gap: 20px;
+    color: #fff;
+  }
+  .control-group {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    color: #fff;
+  }
+  #startButton {
+    padding: 10px 20px;
+    background: #f0f;
+    color: #fff;
+    border: none;
+    cursor: pointer;
+  }
+  #canvasContainer {
+    position: relative;
+    width: 100vw;
+    height: calc(100vh - 200px);
+    overflow: hidden;
+    background: #000;
+  }
+</style>
+</head>
+<body>
+  <header>
+    <h1>Miejska Abstrakcja: Nocny Flâneur</h1>
+    <p>Teraz z ambientowym padem harmonicznym i abstrakcyjnym tłem wideo</p>
+  </header>
+  
+  <div id="controls">
+    <div class="control-group">
+      <label for="melodyVol">Melodia</label>
+      <input type="range" id="melodyVol" min="-60" max="0" value="-10"/>
+    </div>
+    <div class="control-group">
+      <label for="bassVol">Bas</label>
+      <input type="range" id="bassVol" min="-60" max="0" value="-15"/>
+    </div>
+    <div class="control-group">
+      <label for="drumsVol">Perkusja</label>
+      <input type="range" id="drumsVol" min="-60" max="0" value="-5"/>
+    </div>
+    <div class="control-group">
+      <label for="padVol">Pad</label>
+      <input type="range" id="padVol" min="-60" max="0" value="-20"/>
+    </div>
+    <button id="startButton">Start</button>
+  </div>
+  
+  <div id="canvasContainer">
+    <canvas id="visualCanvas"></canvas>
+  </div>
+
+  <!-- Tone.js -->
+  <script src="https://cdn.jsdelivr.net/npm/tone@next/build/Tone.min.js"></script>
+  <script>
+    let started = false;
+
+    // Skala D Dorian: D E F G A B C D
+    // Markow dla melodii:
+    const scale = ['D4','E4','F4','G4','A4','B4','C5','D5'];
+    const transitions = {
+      'D4': ['E4','F4','A4'],
+      'E4': ['F4','G4','D4'],
+      'F4': ['G4','A4','E4'],
+      'G4': ['A4','B4','F4'],
+      'A4': ['B4','C5','G4'],
+      'B4': ['C5','D5','A4'],
+      'C5': ['D5','F4','B4'],
+      'D5': ['D4','E4','C5']
+    };
+    let currentNote = 'D4';
+    function nextMarkovNote() {
+      const possible = transitions[currentNote] || scale;
+      currentNote = possible[Math.floor(Math.random()*possible.length)];
+      return currentNote;
+    }
+
+    // Instrumenty
+    const melodySynth = new Tone.AMSynth().toDestination();
+    melodySynth.volume.value = -10;
+
+    const bassSynth = new Tone.Synth({
+      oscillator: {type: 'sawtooth'},
+      envelope: { attack:0.01, decay:0.2, sustain:0.3, release:0.8 }
+    }).toDestination();
+    bassSynth.volume.value = -15;
+
+    const kick = new Tone.MembraneSynth().toDestination();
+    const snare = new Tone.NoiseSynth({
+      noise: {type: 'white'},
+      envelope: {attack:0.001, decay:0.2, sustain:0}
+    }).toDestination();
+    const hat = new Tone.MetalSynth({
+      frequency: 200,
+      envelope: {attack:0.001, decay:0.1, release:0.1},
+      harmonicity:5.1,
+      modulationIndex:32
+    }).toDestination();
+
+    kick.volume.value = -5;
+    snare.volume.value = -5;
+    hat.volume.value = -5;
+
+    // Ambientowy pad (PolySynth)
+    const padSynth = new Tone.PolySynth(Tone.Synth, {
+      oscillator: {type: 'triangle'},
+      envelope: {attack:2, decay:1, sustain:0.7, release:3}
+    }).toDestination();
+    padSynth.volume.value = -20;
+
+    document.getElementById('melodyVol').addEventListener('input', e => {
+      melodySynth.volume.value = e.target.value;
+    });
+    document.getElementById('bassVol').addEventListener('input', e => {
+      bassSynth.volume.value = e.target.value;
+    });
+    document.getElementById('drumsVol').addEventListener('input', e => {
+      kick.volume.value = e.target.value;
+      snare.volume.value = e.target.value;
+      hat.volume.value = e.target.value;
+    });
+    document.getElementById('padVol').addEventListener('input', e => {
+      padSynth.volume.value = e.target.value;
+    });
+
+    // Chord progression dla padu:
+    // Dm7 (D-F-A-C), Em7 (E-G-B-D), Fmaj7 (F-A-C-E), Em7 (E-G-B-D)
+    const chords = [
+      ['D3','F3','A3','C4'],
+      ['E3','G3','B3','D4'],
+      ['F3','A3','C4','E4'],
+      ['E3','G3','B3','D4']
+    ];
+    let chordIndex = 0;
+    function playNextChord() {
+      padSynth.releaseAll();
+      const chord = chords[chordIndex % chords.length];
+      padSynth.triggerAttackRelease(chord, 8); // graj akord przez 8 sekund
+      chordIndex++;
+      setTimeout(playNextChord, 8000); // co 8 sekund zmieniaj akord
+    }
+
+    function randomizeTempo() {
+      const newTempo = 60 + Math.random()*80;
+      Tone.Transport.bpm.rampTo(newTempo, 4);
+      setTimeout(randomizeTempo, 15000 + Math.random()*15000);
+    }
+
+    // Pattern rytmiczno-melodyczny
+    Tone.Transport.scheduleRepeat(time => {
+      // Melodia
+      melodySynth.triggerAttackRelease(nextMarkovNote(), '8n', time);
+
+      // Bas
+      if (Math.random()<0.4) {
+        const bassNote = Math.random()<0.5 ? 'D2' : 'A2';
+        bassSynth.triggerAttackRelease(bassNote, '8n', time + Math.random()*0.1);
+      }
+
+      // Perkusja
+      if (Math.random()<0.7) kick.triggerAttackRelease('C2','8n', time);
+      if (Math.random()<0.3) snare.triggerAttackRelease('8n', time + 0.2);
+      if (Math.random()<0.5) hat.triggerAttackRelease('16n', time + Math.random()*0.2);
+    }, '8n');
+
+    document.getElementById('startButton').addEventListener('click', async () => {
+      if (!started) {
+        await Tone.start();
+        Tone.Transport.start();
+        randomizeTempo();
+        playNextChord();
+        started = true;
+      }
+    });
+
+    // Analiza audio
+    const fft = new Tone.FFT(32);
+    const meter = new Tone.Meter();
+    Tone.Destination.connect(fft);
+    Tone.Destination.connect(meter);
+
+    // Wizualizacja
+    const canvas = document.getElementById('visualCanvas');
+    const ctx = canvas.getContext('2d');
+    function resizeCanvas() {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight - 200;
+    }
+    resizeCanvas();
+    window.addEventListener('resize', resizeCanvas);
+
+    // Kółka reagujące na audio
+    const circles = Array.from({length:30}).map(()=>({
+      x: Math.random()*window.innerWidth,
+      y: Math.random()*window.innerHeight,
+      r: 10+Math.random()*30,
+      vx: (Math.random()-0.5)*0.5,
+      vy: (Math.random()-0.5)*0.5,
+      hue: Math.random()*360
+    }));
+
+    // Kolory akordów dla tła – każdy akord ma swój dominujący kolor
+    const chordColors = [
+      [280, 0.4], // Dm7 - fioletowo-niebieski
+      [200, 0.4], // Em7 - chłodny błękit
+      [100, 0.4], // Fmaj7 - zielonkawy pastel
+      [160, 0.4]  // Em7 - różni się trochę od poprzedniego Em7
+    ];
+    
+    function getCurrentChordColor() {
+      return chordColors[(chordIndex-1) % chords.length] || [200,0.4];
+    }
+
+    function draw() {
+      const values = fft.getValue();
+      const amplitude = meter.getValue(); 
+      const amp = Math.max(0, 1 - (amplitude / -60));
+
+      const freqData = values.map(v=> v < -100 ? 0 : (v+100)/100);
+      const avgFreq = freqData.reduce((a,b)=>a+b,0)/freqData.length;
+
+      // Tło jako ambientowe video-sfera: radial gradient
+      const [baseHue, sat] = getCurrentChordColor();
+      // Hue zależne od amplitudy i trochę od avgFreq
+      const dynamicHue = (baseHue + avgFreq*100) % 360;
+      const gradient = ctx.createRadialGradient(
+        canvas.width/2, canvas.height/2, 50*amp, 
+        canvas.width/2, canvas.height/2, Math.max(canvas.width, canvas.height)*0.7
+      );
+      gradient.addColorStop(0, `hsl(${dynamicHue},${sat*100}%, ${30+amp*20}%)`);
+      gradient.addColorStop(1, `hsl(${(dynamicHue+60)%360},${(sat+0.1)*100}%, ${5+amp*10}%)`);
+
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0,0,canvas.width,canvas.height);
+
+      // Rysowanie kółek reagujących na częstotliwość i głośność
+      circles.forEach(c => {
+        c.x += c.vx;
+        c.y += c.vy;
+        if (c.x<0 || c.x>canvas.width) c.vx = -c.vx;
+        if (c.y<0 || c.y>canvas.height) c.vy = -c.vy;
+
+        const dynamicR = c.r*(0.5+avgFreq*1.5)*amp;
+        ctx.beginPath();
+        ctx.arc(c.x,c.y, dynamicR, 0, Math.PI*2);
+        ctx.fillStyle = `hsl(${(c.hue+avgFreq*360)%360},80%,50%)`;
+        ctx.fill();
+      });
+
+      requestAnimationFrame(draw);
+    }
+    draw();
+  </script>
+</body>
+</html>
